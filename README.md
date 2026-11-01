@@ -2,6 +2,8 @@
 
 # WEEK 3 ASSIGNMENTS
 
+
+![Image alt](https://github.com/kazapes/Assigned-TUE-10-27-26---Due-MON-11-02-26/blob/2bbd47323696e4ff6e53e6860cb09da911109b97/capetown2026.jpg)
 # Group 
 ## Wolfpak
 ### Members
