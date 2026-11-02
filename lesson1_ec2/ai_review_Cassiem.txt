@@ -1,0 +1,221 @@
+Conversation share link: [Paste this conversation’s share link here]
+
+# Lesson 1 Runbook — AI Review
+
+**Student:** Cassiem M. Davids  
+**AI used:** ChatGPT  
+**Date:** November 1, 2026  
+**Submission filename:** `ai_review_CassiemDavids.txt`  
+**Runbook:** Balerica Legacy Bank — Student Runbook
+
+## Question 1: Does a running EC2 instance mean the bank API is running?
+
+### AI’s answer in my own words
+
+The EC2 instance and the bank application are separate. The instance can be running and have the software installed while the API server is stopped. I need to test the application to confirm it is answering requests.
+
+### How I checked it
+
+I ran:
+
+```bash
+ls /opt/balerica-bank
+```
+
+The expected application folders were present. However, this request returned a connection error:
+
+```bash
+curl http://127.0.0.1:8000/status
+```
+
+I followed the runbook and started the application:
+
+```bash
+cd /opt/balerica-bank
+source venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+The terminal displayed `Application startup complete`. In a second connection to the same instance, I repeated the status request. It returned JSON containing `"api":"online"`.
+
+**Result:** The before-and-after test showed that a running instance with installed software does not guarantee the API server is running.
+
+## Question 2: How can I check the COBOL program’s return codes?
+
+### AI’s answer in my own words
+
+The program leaves an exit status when it finishes. In this lab, a successful account lookup returns `0`, and a missing account returns `4`. I should run `echo $?` immediately after the command I want to check.
+
+### How I checked it
+
+I ran:
+
+```bash
+./cobol/bin/account_lookup 100001
+echo $?
+```
+
+The output showed:
+
+```text
+ACCOUNT=100001
+NAME=Alice Johnson
+STATUS=ACTIVE
+BALANCE=5000.00
+CURRENCY=USD
+```
+
+The return code was `0`.
+
+Next, I ran:
+
+```bash
+./cobol/bin/account_lookup 999999
+echo $?
+```
+
+The output showed:
+
+```text
+ERROR=ACCOUNT NOT FOUND
+ACCOUNT=999999
+```
+
+The return code was `4`.
+
+**Result:** Both observed return codes matched the runbook. I captured the commands and results in screenshots.
+
+## Question 3: How does FastAPI communicate with COBOL?
+
+### AI’s answer in my own words
+
+The API receives the account request and calls a Python bridge. The bridge launches the compiled COBOL program, captures its output, and reads its return code. The API uses that information to create the web response.
+
+### How I checked it
+
+I requested the account through the API:
+
+```bash
+curl http://127.0.0.1:8000/accounts/100001
+```
+
+The response matched the direct COBOL lookup: Alice Johnson, `ACTIVE`, balance `5000.0`, and currency `USD`. It also included `"source":"account_lookup.cob"`. The balance had different formatting but represented the same amount.
+
+I inspected the bridge implementation:
+
+```bash
+grep -n -B 8 -A 15 'subprocess.run' app/cobol_bridge.py
+```
+
+The code showed that `run_cobol` builds the executable path and uses `subprocess.run()` to launch it. It sets `cwd=BANK_HOME`, captures output, parses `KEY=VALUE` lines, and stores `result.returncode`.
+
+I also inspected the API endpoint:
+
+```bash
+grep -n -B 5 -A 15 'def.*account' app/main.py
+```
+
+The endpoint called `cobol_bridge.account_lookup(account_id)`.
+
+**Result:** The matching responses and inspected code supported the explanation of how the API communicates with the COBOL core. Matching output alone would have been weaker evidence.
+
+## Question 4: Is a rejected payment the same as a server failure?
+
+### AI’s answer in my own words
+
+A rejected payment can mean the application correctly enforced a business rule. Payments involving missing accounts or insufficient funds should be rejected. Server or connectivity failures are separate problems.
+
+### How I checked it
+
+With the server running in the other terminal, I ran:
+
+```bash
+python3 swift/traffic_generator.py --count 10
+```
+
+My actual report showed:
+
+| Outcome | Count |
+|---|---:|
+| Sent | 10 |
+| POSTED | 7 |
+| REJECTED | 3 |
+| FAILED | 0 |
+
+I examined the individual transaction results. Two payments were rejected with `ACCOUNT NOT FOUND`, and one was rejected with `INSUFFICIENT FUNDS`. The report also displayed `CONNECTIVITY CONFIRMED`.
+
+**Result:** The report distinguished business rejections from connectivity or server failures, as described in the runbook. These were my observed results, not copied sample results.
+
+## Question 5: Does an offline helper answer prove Bedrock is connected?
+
+### AI’s answer in my own words
+
+The helper can answer from its built-in knowledge base when Bedrock is unavailable or unconfigured. An answer alone does not establish that Bedrock produced it. The response’s `source` field identifies the path used.
+
+### How I checked it
+
+I ran:
+
+```bash
+curl -X POST http://127.0.0.1:8000/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"What does return code 8 mean?"}'
+```
+
+The response described return code `8` as a business rejection, including insufficient funds. Its source field was:
+
+```json
+"source": "offline-knowledge-base"
+```
+
+I compared this with the runbook’s explanation of offline fallback behavior.
+
+**Result:** I verified that the helper answered through the offline knowledge base. I did not verify a working Bedrock connection or determine why the fallback was used.
+
+## Question 6: How does the API represent a missing account?
+
+### AI’s answer in my own words
+
+The API translates the COBOL program’s result into an HTTP response. In this application, a missing-account return code becomes an HTTP `404` response with an account-not-found message.
+
+### How I checked it
+
+I inspected `app/main.py`. The account endpoint checked whether `result["return_code"]` equaled `4` and raised an HTTP exception with status `404`.
+
+Then I ran:
+
+```bash
+curl -i http://127.0.0.1:8000/accounts/999999
+```
+
+The actual response included:
+
+```text
+HTTP/1.1 404 Not Found
+```
+
+The response body was:
+
+```json
+{"detail":"Account not found"}
+```
+
+**Result:** The API behavior matched the source code and the earlier direct COBOL test.
+
+I accidentally pasted the JSON response into Bash afterward, which produced `command not found`. That was a separate shell mistake and did not invalidate the completed API test.
+
+## Where the AI Was Vague or Incomplete
+
+The AI initially suggested comparing the direct COBOL output with the API response to verify their connection. That was incomplete because matching information alone does not prove how the API produced its answer.
+
+I strengthened the check by inspecting the endpoint and bridge code. I found the endpoint’s call to `cobol_bridge.account_lookup`, the bridge’s `subprocess.run()` call, its output parsing, and its capture of the process return code.
+
+The AI also initially drafted future verification steps under “How I checked it.” Those steps were only a plan until I performed them. This review describes the checks I actually completed and the results visible in my screenshots.
+
+## What I Learned
+
+AI helped me interpret the runbook and choose useful checks. The terminal output and source code supplied the verification evidence. I learned to distinguish a running instance from a running application, a business rejection from a server failure, and a COBOL return code from an HTTP status. I also learned to inspect the helper’s source field before assuming Bedrock answered.
+
+## Credential Protection
+
+I did not paste private keys, passwords, or access tokens into the prompts used for this review.
